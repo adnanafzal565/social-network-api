@@ -313,7 +313,7 @@ class PostsController extends Controller
                 ->insertGetId([
                 "post_id" => $post->id,
                 "user_id" => $user->id,
-                "reaction" => empty($reaction) ? null : $reaction,
+                "reaction" => $reaction,
                 "created_at" => now()->utc(),
                 "updated_at" => now()->utc()
             ]);
