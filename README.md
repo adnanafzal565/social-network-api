@@ -24,44 +24,9 @@
 - React +18
 - Bootstrap +5
 
-### How to setup
-
-1. Goto file "config/database.php" and set your database credentials.
-
-```
-'mysql' => [
-    ...
-
-    'host' => '127.0.0.1',
-    'port' => '3306',
-    'database' => 'social_network',
-    'username' => 'root',
-    'password' => '',
-
-    ...
-],
-```
-
-Create a database named "social_network" in your phpMyAdmin.
-
-2. Rename the file ".env.example" to just ".env"
-
-3. At root folder, run the following commands:
-
-(You can write any name, email or password of your choice for super admin while running 5th command)
-
-```
-1) COMPOSER_MEMORY_LIMIT=-1 composer update
-2) php artisan key:generate
-3) php artisan storage:link
-4) php artisan migrate
-5) name="Admin" email="admin@adnan-tech.com" password="admin" php artisan db:seed --class=DatabaseSeeder
-6) php artisan serve
-```
-
-You can access the project from:
-http://localhost:8000
-
-For deployment, check our <a href="https://www.youtube.com/watch?v=EKJnV_-ZX0o" target="_blank">tutorial</a>.
+### Documentation
+Steps to install this project and complete API documentation can be found
+<a href="https://adnan-tech.com/?post_type=social-network-api">
+    here</a>.
 
 If you face any issue in this, kindly let me know: support@adnan-tech.com
