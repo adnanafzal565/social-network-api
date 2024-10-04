@@ -55,6 +55,7 @@ class MessagesController extends Controller
         }
 
         $messages = DB::table("messages")
+            ->select("messages.*", "message_attachments.path", "message_attachments.type", "message_attachments.name")
             ->leftJoin("message_attachments", "message_attachments.message_id", "=", "messages.id")
             ->where(function ($query) use ($user, $other_user_id) {
                 $query->where("messages.sender_id", "=", $user->id)
@@ -64,7 +65,6 @@ class MessagesController extends Controller
                 $query->where("messages.receiver_id", "=", $user->id)
                     ->where("messages.sender_id", "=", $other_user_id);
             })
-            ->select("messages.*", "message_attachments.path")
             ->orderBy("messages.id", "desc")
             ->paginate();
 
@@ -98,16 +98,28 @@ class MessagesController extends Controller
                 }
             }
 
-            if ($message->path && Storage::exists("public/" . $message->path))
+            $has_file = ($message->path && Storage::exists("private/" . $message->path));
+            $file_content = "";
+
+            if ($has_file)
             {
-                array_push($message_obj["attachments"], url("/storage/" . $message->path));
+                $file_content = "data:" . $message->type . ";base64," . base64_encode(file_get_contents(storage_path("app/private/" . $message->path)));
+                array_push($message_obj["attachments"], [
+                    "path" => $file_content,
+                    "name" => $message->name ?? "",
+                    "type" => $message->type ?? ""
+                ]);
             }
 
             if ($index > -1)
             {
-                if ($message->path && Storage::exists("public/" . $message->path))
+                if ($has_file)
                 {
-                    array_push($messages_arr[$index]["attachments"], url("/storage/" . $message->path));
+                    array_push($messages_arr[$index]["attachments"], [
+                        "path" => $file_content,
+                        "name" => $message->name ?? "",
+                        "type" => $message->type ?? ""
+                    ]);
                 }
             }
             else
@@ -210,18 +222,36 @@ class MessagesController extends Controller
             foreach (request()->file("attachments") as $attachment)
             {
                 $file_path = "messages/" . $message_arr["id"] . "/" . time() . "-" . $attachment->getClientOriginalName();
-                $attachment->storeAs("/public", $file_path);
+                $attachment->storeAs("/private", $file_path);
+
+                $obj = [
+                    "message_id" => $message_arr["id"],
+                    "name" => $attachment->getClientOriginalName(),
+                    "type" => $attachment->getClientMimeType(),
+                    "path" => $file_path,
+                    "size" => $attachment->getSize(),
+                    "created_at" => now(),
+                    "updated_at" => now()
+                ];
 
                 DB::table("message_attachments")
-                    ->insertGetId([
-                        "message_id" => $message_arr["id"],
-                        "path" => $file_path,
-                        "created_at" => now(),
-                        "updated_at" => now()
-                    ]);
+                    ->insertGetId($obj);
 
-                array_push($message_arr["attachments"], url("/storage/" . $file_path));
+                $file_content = "data:" . $obj["type"] . ";base64," . base64_encode(file_get_contents(storage_path("app/private/" . $file_path)));
+                array_push($message_arr["attachments"], $file_content);
             }
+
+            // Get the full path to the folder
+            $full_path = storage_path('app/private/messages');
+
+            // Set permissions using PHP's chmod function
+            chmod($full_path, 0775);
+
+            // Get the full path to the folder
+            $full_path = storage_path('app/private/messages/' . $message_arr["id"]);
+
+            // Set permissions using PHP's chmod function
+            chmod($full_path, 0775);
         }
 
         DB::table("notifications")
