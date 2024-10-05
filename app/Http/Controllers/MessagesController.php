@@ -17,7 +17,8 @@ class MessagesController extends Controller
         $time_zone = request()->time_zone ?? "";
         if (!empty($time_zone))
         {
-            $date_time_zone = new \DateTimeZone($time_zone);
+            // $date_time_zone = new \DateTimeZone($time_zone);
+            date_default_timezone_set($time_zone);
         }
 
         $other_user_id = 0;
@@ -72,12 +73,14 @@ class MessagesController extends Controller
         $message_ids = [];
         foreach ($messages as $message)
         {
-            if (!empty($time_zone))
+            // if (!empty($time_zone))
             {
-                $date_time = new \DateTime($message->created_at);
-                $date_time->setTimezone($date_time_zone);
-                $message->created_at = $date_time->format("d M, Y h:i:s a");
+                // $date_time = new \DateTime($message->created_at);
+                // $date_time->setTimezone($date_time_zone);
+                // $message->created_at = $date_time->format("d M, Y h:i:s a");
             }
+
+            $message->created_at = $this->relative_time(time() - strtotime($message->created_at . " UTC"));
 
             $message_obj = [
                 "id" => $message->id,
@@ -160,7 +163,8 @@ class MessagesController extends Controller
         
         if (!empty($time_zone))
         {
-            $date_time_zone = new \DateTimeZone($time_zone);
+            // $date_time_zone = new \DateTimeZone($time_zone);
+            date_default_timezone_set($time_zone);
         }
 
         $receiver_id = 0;
@@ -209,12 +213,15 @@ class MessagesController extends Controller
         $message_arr["id"] = DB::table("messages")
             ->insertGetId($message_arr);
 
-        if (!empty($time_zone))
+        // if (!empty($time_zone))
         {
-            $date_time = new \DateTime($message_arr["created_at"]);
-            $date_time->setTimezone($date_time_zone);
-            $message_arr["created_at"] = $date_time->format("d M, Y h:i:s a");
+            // $date_time = new \DateTime($message_arr["created_at"]);
+            // $date_time->setTimezone($date_time_zone);
+            // $message_arr["created_at"] = $date_time->format("d M, Y h:i:s a");
+            // $message_arr["updated_at"] = $date_time->format("d M, Y h:i:s a");
         }
+
+        $message_arr["created_at"] = $message_arr["updated_at"] = $this->relative_time(time() - strtotime($message_arr["created_at"] . " UTC"));
 
         $message_arr["attachments"] = [];
         if (request()->file("attachments"))

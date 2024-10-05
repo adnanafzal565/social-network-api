@@ -48,8 +48,9 @@ class PostsController extends Controller
                 "caption" => $post->caption ?? "",
                 "user_id" => $post->user_id ?? "",
                 "user_name" => $post->user_name ?? "",
-                "user_profile_image" => null,
-                "created_at" => date("Y-m-d h:i:s a", strtotime($post->created_at . " UTC"))
+                "user_profile_image" => "",
+                // "created_at" => date("d M, Y h:i:s a", strtotime($post->created_at . " UTC"))
+                "created_at" => $this->relative_time(time() - strtotime($post->created_at . " UTC"))
             ];
 
             if ($post->user_profile_image && Storage::exists("public/" . $post->user_profile_image))
@@ -111,9 +112,13 @@ class PostsController extends Controller
 
         foreach ($post_comments as $comment)
         {
-            if (Storage::exists("public/" . $comment->user_profile_image))
+            if ($comment->user_profile_image && Storage::exists("public/" . $comment->user_profile_image))
             {
                 $comment->user_profile_image = url("/storage/" . $comment->user_profile_image);
+            }
+            else
+            {
+                $comment->user_profile_image = "";
             }
             
             array_push($post_comments_arr, [
@@ -121,7 +126,8 @@ class PostsController extends Controller
                 "comment" => $comment->comment,
                 "user_name" => $comment->user_name,
                 "user_profile_image" => $comment->user_profile_image,
-                "created_at" => date("d M Y, h:i:s a", strtotime($comment->created_at . " UTC"))
+                // "created_at" => date("d M Y, h:i:s a", strtotime($comment->created_at . " UTC"))
+                "created_at" => $this->relative_time(time() - strtotime($comment->created_at . " UTC"))
             ]);
         }
 
@@ -185,7 +191,8 @@ class PostsController extends Controller
             "comment" => $comment_obj["comment"],
             "user_name" => $user->name,
             "user_profile_image" => "",
-            "created_at" => date("d M Y, h:i:s a", strtotime($comment_obj["created_at"] . " UTC"))
+            // "created_at" => date("d M Y, h:i:s a", strtotime($comment_obj["created_at"] . " UTC"))
+            "created_at" => $this->relative_time(time() - strtotime($comment_obj["created_at"] . " UTC"))
         ];
 
         if ($user->profile_image && Storage::exists("public/" . $user->profile_image))
@@ -279,9 +286,9 @@ class PostsController extends Controller
 
         $user = auth()->user();
         $id = request()->id ?? 0;
-        $reaction = request()->reaction ?? "";
+        $reaction = request()->reaction ?? "like";
 
-        if (!empty($reaction) && !in_array($reaction, ["like", "love", "angry", "sad", "laugh"]))
+        if (!in_array($reaction, ["like", "love", "angry", "sad", "laugh"]))
         {
             return response()->json([
                 "status" => "error",
@@ -378,9 +385,13 @@ class PostsController extends Controller
 
         for ($a = 0; $a < count($files); $a++)
         {
-            if ($files[$a]->path && Storage::exists("public/" . $files[$a]->path))
+            if ($files[$a]->path)
             {
-                Storage::delete("public/" . $files[$a]->path);
+                if (Storage::exists("public/" . $files[$a]->path))
+                    Storage::delete("public/" . $files[$a]->path);
+
+                if (Storage::exists("private/" . $files[$a]->path))
+                    Storage::delete("private/" . $files[$a]->path);
             }
         }
 
@@ -411,12 +422,19 @@ class PostsController extends Controller
         $user = auth()->user();
         $id = request()->id ?? 0;
         $caption = request()->caption ?? "";
-        $type = request()->type ?? "";
+        $type = request()->type ?? "public";
         $activity = request()->activity ?? "";
         $activity_value = request()->activity_value ?? "";
         $with_user = request()->with_user ?? 0; // this will be the ID of the user
 
-        if (!empty($type) && !in_array($type, ["private", "public"]))
+        $time_zone = request()->time_zone ?? "";
+        if (!empty($time_zone))
+        {
+            // $date_time_zone = new \DateTimeZone($time_zone);
+            date_default_timezone_set($time_zone);
+        }
+
+        if (!in_array($type, ["private", "public"]))
         {
             return response()->json([
                 "status" => "error",
@@ -428,8 +446,8 @@ class PostsController extends Controller
         {
             foreach (request()->file("files") as $file)
             {
-                $type = $file->getClientMimeType();
-                if (!str_contains($type, "image") && !str_contains($type, "video"))
+                $file_type = $file->getClientMimeType();
+                if (!str_contains($file_type, "image") && !str_contains($file_type, "video"))
                 {
                     return response()->json([
                         "status" => "error",
@@ -514,7 +532,7 @@ class PostsController extends Controller
             foreach (request()->file("files") as $file)
             {
                 $file_path = "posts/" . $post_date . "/" . time() . "-" . $file->getClientOriginalName();
-                $file->storeAs("public/", $file_path);
+                $file->storeAs($type, $file_path);
 
                 array_push($files, [
                     "path" => $file_path,
@@ -569,7 +587,8 @@ class PostsController extends Controller
 
         $post = DB::table("posts")
             ->select("posts.*", "users.name", "users.profile_image", "shared.caption AS shared_caption"
-                , "shared.files AS shared_files", "shared.activity AS shared_activity")
+                , "shared.files AS shared_files", "shared.activity AS shared_activity"
+                , "shared.type AS shared_type")
             ->join("users", "users.id", "=", "posts.user_id")
             ->leftJoin("posts AS shared", "shared.id", "=", "posts.shared_post_id")
             ->where("posts.id", "=", $id)
@@ -589,9 +608,17 @@ class PostsController extends Controller
 
         for ($a = 0; $a < count($files); $a++)
         {
-            if ($files[$a]->path && Storage::exists("public/" . $files[$a]->path))
+            if ($files[$a]->path)
             {
-                $files[$a]->path = url("/storage/" . $files[$a]->path);
+                if ($post->type == "public" && Storage::exists("public/" . $files[$a]->path))
+                {
+                    $files[$a]->path = url("/storage/" . $files[$a]->path);
+                }
+                else if ($post->type == "private" && Storage::exists("private/" . $files[$a]->path))
+                {
+                    $file_content = "data:" . $files[$a]->type . ";base64," . base64_encode(file_get_contents(storage_path("app/private/" . $files[$a]->path)));
+                    $files[$a]->path = $file_content;
+                }
             }
             else
             {
@@ -604,14 +631,27 @@ class PostsController extends Controller
 
         for ($a = 0; $a < count($shared_files); $a++)
         {
-            if ($shared_files[$a]->path && Storage::exists("public/" . $shared_files[$a]->path))
+            if ($shared_files[$a]->path)
             {
-                $shared_files[$a]->path = url("/storage/" . $shared_files[$a]->path);
+                if ($post->shared_type == "public" && Storage::exists("public/" . $shared_files[$a]->path))
+                {
+                    $shared_files[$a]->path = url("/storage/" . $shared_files[$a]->path);
+                }
+                else if ($post->shared_type == "private" && Storage::exists("private/" . $shared_files[$a]->path))
+                {
+                    $file_content = "data:" . $shared_files[$a]->type . ";base64," . base64_encode(file_get_contents(storage_path("app/private/" . $shared_files[$a]->path)));
+                    $shared_files[$a]->path = $file_content;
+                }
             }
             else
             {
                 $shared_files[$a]->path = "";
             }
+        }
+
+        if ($post->profile_image && Storage::exists("public/" . $post->profile_image))
+        {
+            $post->profile_image = url("/storage/" . $post->profile_image);
         }
 
         $post_arr = [
@@ -630,7 +670,7 @@ class PostsController extends Controller
             "shared_caption" => $post->shared_caption ?? "",
             "shared_files" => $shared_files,
             "shared_activity" => $post->shared_activity ?? "",
-            "created_at" => date("Y-m-d h:i:s a", strtotime($post->created_at . " UTC"))
+            "created_at" => $this->relative_time(time() - strtotime($post->created_at . " UTC"))
         ];
 
         if (!is_null($post->with_user))
@@ -655,10 +695,12 @@ class PostsController extends Controller
         
         $posts = DB::table("posts")
             ->select("posts.*", "users.name", "users.profile_image", "shared.caption AS shared_caption"
-                , "shared.files AS shared_files", "shared.activity AS shared_activity")
+                , "shared.files AS shared_files", "shared.activity AS shared_activity"
+                , "shared.type AS shared_type")
             ->join("users", "users.id", "=", "posts.user_id")
             ->leftJoin("posts AS shared", "shared.id", "=", "posts.shared_post_id")
-            ->inRandomOrder()
+            // ->inRandomOrder()
+            ->orderBy("posts.id", "desc")
             ->paginate();
 
         $posts_arr = [];
@@ -669,9 +711,17 @@ class PostsController extends Controller
 
             for ($a = 0; $a < count($files); $a++)
             {
-                if ($files[$a]->path && Storage::exists("public/" . $files[$a]->path))
+                if ($files[$a]->path)
                 {
-                    $files[$a]->path = url("/storage/" . $files[$a]->path);
+                    if ($post->type == "public" && Storage::exists("public/" . $files[$a]->path))
+                    {
+                        $files[$a]->path = url("/storage/" . $files[$a]->path);
+                    }
+                    else if ($post->type == "private" && Storage::exists("private/" . $files[$a]->path))
+                    {
+                        $file_content = "data:" . $files[$a]->type . ";base64," . base64_encode(file_get_contents(storage_path("app/private/" . $files[$a]->path)));
+                        $files[$a]->path = $file_content;
+                    }
                 }
                 else
                 {
@@ -684,9 +734,17 @@ class PostsController extends Controller
 
             for ($a = 0; $a < count($shared_files); $a++)
             {
-                if ($shared_files[$a]->path && Storage::exists("public/" . $shared_files[$a]->path))
+                if ($shared_files[$a]->path)
                 {
-                    $shared_files[$a]->path = url("/storage/" . $shared_files[$a]->path);
+                    if ($post->shared_type == "public" && Storage::exists("public/" . $shared_files[$a]->path))
+                    {
+                        $shared_files[$a]->path = url("/storage/" . $shared_files[$a]->path);
+                    }
+                    else if ($post->shared_type == "private" && Storage::exists("private/" . $shared_files[$a]->path))
+                    {
+                        $file_content = "data:" . $shared_files[$a]->type . ";base64," . base64_encode(file_get_contents(storage_path("app/private/" . $shared_files[$a]->path)));
+                        $shared_files[$a]->path = $file_content;
+                    }
                 }
                 else
                 {
@@ -699,22 +757,36 @@ class PostsController extends Controller
                 $post->with_user = json_decode($post->with_user);
             }
 
+            if ($post->profile_image && Storage::exists("public/" . $post->profile_image))
+            {
+                $post->profile_image = url("/storage/" . $post->profile_image);
+            }
+
+            $shared_post = null;
+            $post->shared_post_id = $post->shared_post_id ?? 0;
+            if ($post->shared_post_id > 0)
+            {
+                $shared_post = (object) [
+                    "id" => $post->shared_post_id ?? 0,
+                    "caption" => $post->shared_caption ?? "",
+                    "files" => $shared_files,
+                    "activity" => $post->shared_activity ?? ""
+                ];
+            }
+
             array_push($posts_arr, [
                 "id" => $post->id,
                 "caption" => $post->caption ?? "",
                 "user_name" => $post->name ?? "",
                 "profile_image" => $post->profile_image ?? "",
                 "files" => $files,
-                "type" => $post->type ?? "",
+                "type" => $post->type ?? "public",
                 "activity" => $post->activity ?? "",
                 "with_user" => $post->with_user ?? null,
                 "likes" => $post->likes ?? 0,
                 "comments" => $post->comments ?? 0,
                 "shares" => $post->shares ?? 0,
-                "shared_post_id" => $post->shared_post_id ?? 0,
-                "shared_caption" => $post->shared_caption ?? "",
-                "shared_files" => $shared_files,
-                "shared_activity" => $post->shared_activity ?? "",
+                "shared_post" => $shared_post,
                 "created_at" => $this->relative_time(time() - strtotime($post->created_at . " UTC"))
             ]);
         }
@@ -730,7 +802,7 @@ class PostsController extends Controller
     {
         $user = auth()->user();
         $caption = request()->caption ?? "";
-        $type = request()->type ?? "";
+        $type = request()->type ?? "public";
         $activity = request()->activity ?? "";
         $activity_value = request()->activity_value ?? "";
         $with_user = request()->with_user ?? 0; // this will be the ID of the user
@@ -739,10 +811,11 @@ class PostsController extends Controller
         $time_zone = request()->time_zone ?? "";
         if (!empty($time_zone))
         {
-            $date_time_zone = new \DateTimeZone($time_zone);
+            // $date_time_zone = new \DateTimeZone($time_zone);
+            date_default_timezone_set($time_zone);
         }
 
-        if (!empty($type) && !in_array($type, ["private", "public"]))
+        if (!in_array($type, ["private", "public"]))
         {
             return response()->json([
                 "status" => "error",
@@ -762,8 +835,8 @@ class PostsController extends Controller
         {
             foreach (request()->file("files") as $file)
             {
-                $type = $file->getClientMimeType();
-                if (!str_contains($type, "image") && !str_contains($type, "video"))
+                $file_type = $file->getClientMimeType();
+                if (!str_contains($file_type, "image") && !str_contains($file_type, "video"))
                 {
                     return response()->json([
                         "status" => "error",
@@ -837,16 +910,16 @@ class PostsController extends Controller
             foreach (request()->file("files") as $file)
             {
                 $file_path = "posts/" . $today . "/" . time() . "-" . $file->getClientOriginalName();
-                $file->storeAs("public", $file_path);
+                $file->storeAs($type, $file_path);
 
                 // Get the full path to the folder
-                $full_path = storage_path('app/public/posts');
+                $full_path = storage_path('app/' . $type . '/posts');
 
                 // Set permissions using PHP's chmod function
                 chmod($full_path, 0775);
 
                 // Get the full path to the folder
-                $full_path = storage_path('app/public/posts/' . $today);
+                $full_path = storage_path('app/' . $type . '/posts/' . $today);
 
                 // Set permissions using PHP's chmod function
                 chmod($full_path, 0775);
@@ -895,22 +968,33 @@ class PostsController extends Controller
                 ]);
         }
 
-        if (!empty($time_zone))
-        {
-            $date_time = new \DateTime($post_obj["created_at"]);
-            $date_time->setTimezone($date_time_zone);
-            $post_obj["created_at"] = $date_time->format("d M, Y h:i:s a");
+        // if (!empty($time_zone))
+        // {
+        //     $date_time = new \DateTime($post_obj["created_at"]);
+        //     $date_time->setTimezone($date_time_zone);
+        //     $post_obj["created_at"] = $date_time->format("d M, Y h:i:s a");
 
-            $date_time = new \DateTime($post_obj["updated_at"]);
-            $date_time->setTimezone($date_time_zone);
-            $post_obj["updated_at"] = $date_time->format("d M, Y h:i:s a");
-        }
+        //     $date_time = new \DateTime($post_obj["updated_at"]);
+        //     $date_time->setTimezone($date_time_zone);
+        //     $post_obj["updated_at"] = $date_time->format("d M, Y h:i:s a");
+        // }
+
+        $post_obj["created_at"] = $this->relative_time(time() - strtotime($post_obj["created_at"] . " UTC"));
+        $post_obj["updated_at"] = $this->relative_time(time() - strtotime($post_obj["updated_at"] . " UTC"));
 
         foreach ($files as $key => $value)
         {
-            if ($value["path"] && Storage::exists("public/" . $value["path"]))
+            if ($value["path"] && Storage::exists($type . "/" . $value["path"]))
             {
-                $files[$key]["path"] = url("/storage/" . $value["path"]);
+                if ($type == "private")
+                {
+                    $file_content = "data:" . $value["type"] . ";base64," . base64_encode(file_get_contents(storage_path("app/private/" . $value["path"])));
+                    $files[$key]["path"] = $file_content;
+                }
+                else if ($type == "public")
+                {
+                    $files[$key]["path"] = url("/storage/" . $value["path"]);
+                }
             }
         }
 

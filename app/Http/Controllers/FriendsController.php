@@ -17,7 +17,8 @@ class FriendsController extends Controller
         $time_zone = request()->time_zone ?? "";
         if (!empty($time_zone))
         {
-            $date_time_zone = new \DateTimeZone($time_zone);
+            // $date_time_zone = new \DateTimeZone($time_zone);
+            date_default_timezone_set($time_zone);
         }
 
         $friends = DB::table("friends")
@@ -44,12 +45,14 @@ class FriendsController extends Controller
                 $friend->u2_profile_image = url("/storage/" . $friend->u2_profile_image);
             }
 
-            if (!empty($time_zone))
+            // if (!empty($time_zone))
             {
-                $date_time = new \DateTime($friend->accepted_at);
-                $date_time->setTimezone($date_time_zone);
-                $friend->accepted_at = $date_time->format("d M, Y h:i:s a");
+                // $date_time = new \DateTime($friend->accepted_at);
+                // $date_time->setTimezone($date_time_zone);
+                // $friend->accepted_at = $date_time->format("d M, Y h:i:s a");
             }
+
+            $friend->accepted_at = $this->relative_time(time() - strtotime($friend->accepted_at . " UTC"));
 
             array_push($friends_arr, [
                 "id" => $friend->id,
