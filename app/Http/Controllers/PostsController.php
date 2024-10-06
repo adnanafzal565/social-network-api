@@ -33,6 +33,19 @@ class PostsController extends Controller
         $posts_arr = [];
         $id = request()->id ?? 0;
 
+        $post = DB::table("posts")
+            ->where("id", "=", $id)
+            ->where("type", "=", "public")
+            ->first();
+
+        if ($post == null)
+        {
+            return response()->json([
+                "status" => "error",
+                "message" => "Post not found."
+            ]);
+        }
+
         $post_shares = DB::table("post_shares")
             ->select("posts.*", "users.id AS user_id", "users.name AS user_name", "users.profile_image AS user_profile_image")
             ->join("posts", "posts.id", "=", "post_shares.shared_post_id")
@@ -93,6 +106,7 @@ class PostsController extends Controller
 
         $post = DB::table("posts")
             ->where("id", "=", $id)
+            ->where("type", "=", "public")
             ->first();
 
         if ($post == null)
@@ -165,6 +179,7 @@ class PostsController extends Controller
 
         $post = DB::table("posts")
             ->where("id", "=", $id)
+            ->where("type", "=", "public")
             ->first();
 
         if ($post == null)
@@ -225,6 +240,7 @@ class PostsController extends Controller
 
         $post = DB::table("posts")
             ->where("id", "=", $id)
+            ->where("type", "=", "public")
             ->first();
 
         if ($post == null)
@@ -236,7 +252,8 @@ class PostsController extends Controller
         }
 
         $post_likers = DB::table("post_likers")
-            ->select("users.id", "users.name", "users.profile_image")
+            ->select("users.id", "users.name", "users.profile_image",
+                "post_likers.reaction")
             ->join("users", "users.id", "=", "post_likers.user_id")
             ->where("post_likers.post_id", "=", $post->id)
             ->orderBy("post_likers.id", "desc")
@@ -247,7 +264,8 @@ class PostsController extends Controller
         {
             $temp = [
                 "id" => $post_liker->id,
-                "name" => $post_liker->name,
+                "name" => $post_liker->name ?? "",
+                "reaction" => $post_liker->reaction ?? "",
                 "profile_image" => ""
             ];
 
@@ -298,6 +316,7 @@ class PostsController extends Controller
 
         $post = DB::table("posts")
             ->where("id", "=", $id)
+            ->where("type", "=", "public")
             ->first();
 
         if ($post == null)
@@ -592,6 +611,7 @@ class PostsController extends Controller
             ->join("users", "users.id", "=", "posts.user_id")
             ->leftJoin("posts AS shared", "shared.id", "=", "posts.shared_post_id")
             ->where("posts.id", "=", $id)
+            ->where("posts.type", "=", "public")
             ->first();
 
         if ($post == null)
@@ -654,6 +674,18 @@ class PostsController extends Controller
             $post->profile_image = url("/storage/" . $post->profile_image);
         }
 
+        $shared_post = null;
+        $post->shared_post_id = $post->shared_post_id ?? 0;
+        if ($post->shared_post_id > 0 && $post->shared_type == "public")
+        {
+            $shared_post = (object) [
+                "id" => $post->shared_post_id ?? 0,
+                "caption" => $post->shared_caption ?? "",
+                "files" => $shared_files,
+                "activity" => $post->shared_activity ?? ""
+            ];
+        }
+
         $post_arr = [
             "id" => $post->id,
             "caption" => $post->caption ?? "",
@@ -666,10 +698,7 @@ class PostsController extends Controller
             "likes" => $post->likes ?? 0,
             "comments" => $post->comments ?? 0,
             "shares" => $post->shares ?? 0,
-            "shared_post_id" => $post->shared_post_id ?? 0,
-            "shared_caption" => $post->shared_caption ?? "",
-            "shared_files" => $shared_files,
-            "shared_activity" => $post->shared_activity ?? "",
+            "shared_post" => $shared_post,
             "created_at" => $this->relative_time(time() - strtotime($post->created_at . " UTC"))
         ];
 
@@ -700,6 +729,7 @@ class PostsController extends Controller
             ->join("users", "users.id", "=", "posts.user_id")
             ->leftJoin("posts AS shared", "shared.id", "=", "posts.shared_post_id")
             // ->inRandomOrder()
+            ->where("posts.type", "=", "public")
             ->orderBy("posts.id", "desc")
             ->paginate();
 
@@ -764,7 +794,7 @@ class PostsController extends Controller
 
             $shared_post = null;
             $post->shared_post_id = $post->shared_post_id ?? 0;
-            if ($post->shared_post_id > 0)
+            if ($post->shared_post_id > 0 && $post->shared_type == "public")
             {
                 $shared_post = (object) [
                     "id" => $post->shared_post_id ?? 0,
@@ -813,6 +843,23 @@ class PostsController extends Controller
         {
             // $date_time_zone = new \DateTimeZone($time_zone);
             date_default_timezone_set($time_zone);
+        }
+
+        $shared_post = null;
+        if ($shared_post_id > 0)
+        {
+            $shared_post = DB::table("posts")
+                ->where("id", "=", $shared_post_id)
+                ->where("type", "=", "public")
+                ->first();
+
+            if ($shared_post == null)
+            {
+                return response()->json([
+                    "status" => "error",
+                    "message" => "Post not found."
+                ]);
+            }
         }
 
         if (!in_array($type, ["private", "public"]))
@@ -882,22 +929,8 @@ class PostsController extends Controller
             }
         }
 
-        $shared_post = null;
-
-        if ($shared_post_id > 0)
+        if ($shared_post != null)
         {
-            $shared_post = DB::table("posts")
-                ->where("id", "=", $shared_post_id)
-                ->first();
-
-            if ($shared_post == null)
-            {
-                return response()->json([
-                    "status" => "error",
-                    "message" => "Post not found."
-                ]);
-            }
-
             DB::table("posts")
                 ->where("id", "=", $shared_post->id)
                 ->increment("shares", 1);
